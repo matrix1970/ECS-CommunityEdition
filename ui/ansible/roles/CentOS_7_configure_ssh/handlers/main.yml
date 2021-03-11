@@ -1,3 +1,0 @@
----
-- name: CentOS 7 | Restart sshd
-  service: name="{{ service_names.ssh }}" state=restarted enabled=yes

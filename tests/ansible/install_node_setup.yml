@@ -1,6 +1,0 @@
-- name: Setup install node
-  hosts: install_node
-  roles:
-    - install_node_setup
-  tags:
-    - install_node

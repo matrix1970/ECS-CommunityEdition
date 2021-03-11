@@ -1,5 +1,0 @@
-# {{ ansible_hostname }}:
-# --------------------------------
-{% for item in hostvars[ansible_host] | list %}
-    {{ item | to_nice_yaml }}
-{% endfor %}
