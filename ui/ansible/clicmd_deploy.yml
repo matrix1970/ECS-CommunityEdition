@@ -1,0 +1,29 @@
+- name: Common | Ping data nodes before doing anything else
+  hosts: data_node
+  gather_facts: false
+  tasks:
+    - ping: "{{inventory_hostname}}"
+
+- name: Common | Install ECS
+  gather_facts: True
+  hosts: data_node
+  vars:
+    num_data_nodes: "{{ groups['data_node'] | length }}"
+    top_data_node: "{{ groups['data_node'][0] }}"
+    install_node: "{{ groups['install_node'][0] }}"
+  roles:
+    - common_baseline_install
+    - common_deploy
+
+- name: Installer | Slice nodes into OS groups for init scripts
+  hosts: data_node
+  gather_facts: True
+  tasks:
+     - group_by: key=os_{{ ansible_distribution }}_{{ ansible_distribution_major_version }}
+
+- name: CentOS 7 | Install init scripts
+  gather_facts: True
+  hosts: os_CentOS_7
+  roles:
+    - CentOS_7_service_policies
+

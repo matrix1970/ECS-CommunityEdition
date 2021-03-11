@@ -1,0 +1,84 @@
+# Copyright (c) 2015 EMC Corporation
+# All Rights Reserved
+#
+# This software contains the intellectual property of EMC Corporation
+# or is licensed to EMC Corporation from third parties.  Use of this
+# software and the intellectual property contained therein is expressly
+# limited to the terms and conditions of the License Agreement under which
+# it is provided by or on behalf of EMC.
+
+# Do relatively static layers first to avoid unnecessary cache misses
+FROM {{ .FromImage }}
+LABEL MAINTAINER='Travis Wichert <travis.wichert@emc.com>'
+ENV ANSIBLE_CONFIG="/etc/ansible/ansible.cfg"
+ENV ANSIBLE_HOSTS="/usr/local/src/ui/inventory.py"
+
+# Set proxies before build
+{{ if .HTTPProxy }}
+ENV http_proxy={{ .HTTPProxy }}
+{{ end }}
+{{ if .PipProxy }}
+ENV pip_proxy={{ .PipProxy }}
+{{ end }}
+
+# Add required system packages and setup the environment
+RUN apk update \
+    && apk --no-cache add python2 py-pip openssh-client sshpass openssl ca-certificates libffi \
+                             libressl pigz jq less opentracker aria2 mktorrent ansible \
+    && mv /etc/profile.d/color_prompt /etc/profile.d/color_prompt.sh \
+    && ln -s /usr/local/src/ui/ansible /ansible \
+    && ln -s /usr/local/src/ui /ui \
+    && ln -s /usr/local/src /src \
+    && ln -s /usr/bin/python /usr/local/bin/python \
+    && mkdir -p /var/run/opentracker \
+    && chown nobody:nobody /var/run/opentracker
+
+# Add Python required modules list
+COPY ui/resources/docker/ecs-install-requirements.txt /etc/ecs-install-requirements.txt
+
+# Generate temporary build environment and install required Python modules
+RUN apk --no-cache add --update --virtual .build-deps musl-dev python2-dev libffi-dev \
+                       build-base make openssl-dev linux-headers git gcc git-perl \
+    && if ! [ -z "$pip_proxy" ]; then \
+            echo "Using proxy: ${pip_proxy}" && \
+            export pip_proxy="--proxy $pip_proxy" && \
+            git config --global http.proxy "$http_proxy" \
+       ;fi \
+    && pip install $pip_proxy --no-cache-dir --upgrade pip \
+    && pip install $pip_proxy --no-cache-dir -r /etc/ecs-install-requirements.txt \
+    && apk --no-cache --purge del .build-deps
+
+# Add Ansible configuration
+RUN mkdir -p /etc/ansible
+COPY ui/resources/docker/ansible.cfg /etc/ansible/ansible.cfg
+
+# Add bittorrent ffx daemon
+COPY ui/resources/docker/torrent.sh /usr/local/bin/torrent.sh
+RUN chmod +x /usr/local/bin/torrent.sh
+
+# Add simple init replacement
+COPY ui/resources/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+ENTRYPOINT [ "/usr/local/bin/entrypoint.sh" ]
+
+# Add installer UI and scripts
+COPY {{ .UIArtifact }} /usr/local/src/ui.tgz
+# Currently using the Ansible apk.
+# COPY {{ .AnsibleArtifact }} /usr/local/src/ansible.tgz
+
+# Unset proxies after build
+{{ if .HTTPProxy }}
+ENV http_proxy=
+{{ end }}
+{{ if .PipProxy }}
+ENV pip_proxy=
+{{ end }}
+
+# Set default volume mounts
+VOLUME [ "/opt", "/usr", "/var/log", "/root", "/etc" ]
+
+# Rubber-stamp this build
+LABEL VERSION={{ .Version }}
+ENV VERSION={{ .Version }}
+TAG {{ .Version }}
+# PUSH {{ .BuildPush }}

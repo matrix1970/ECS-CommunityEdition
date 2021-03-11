@@ -1,0 +1,57 @@
+- name: Set authorized key
+  authorized_key:
+    user: root
+    state: present
+    key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+
+- name: Install rsync package
+  package:
+    name: rsync
+    state: latest
+
+- name: Copy files to installer node
+  synchronize:
+    src: "{{ current_directory }}/"
+    dest: /root/ecs
+    recursive: yes
+
+- name: Remove rsync package
+  package:
+    name: rsync
+    state: absent
+
+- name: Provide the deploy.yml file
+  template:
+    src: deploy.yml.j2
+    dest: /root/ecs/deploy.yml
+    owner: root
+    group: root
+
+- name: Configure /etc/resolve.conf
+
+
+- name: Fetch the docker registry certificate
+  get_url:
+    url: http://10.1.83.5/registry.crt
+    dest: /root/ecs/registry.crt
+    owner: root
+    group: root
+    mode: 0600
+
+- name: Run boostrap script
+  shell: /root/ecs/bootstrap.sh -n --override-dns 10.1.83.5 --build-from http://cache.gotham.local/alpine --vm-tools --proxy-cert /root/ecs/contrib/sslproxycert/emc_ssl.pem --proxy-endpoint cache.gotham.local:3128 -c /root/ecs/deploy.yml --centos-mirror cache.gotham.local --registry-endpoint cache.gotham.local:5000 --registry-cert /root/ecs/registry.crt
+
+- name: reboot nodes
+  shell: sleep 2 && shutdown -r now "Ansible reboot"
+  async: 1
+  poll: 0
+  ignore_errors: true
+
+- name: wait for server to come back
+  local_action: wait_for host="{{ inventory_hostname }}" port=22 state=started delay=30 timeout=300
+
+- name: Run Step1
+  shell: step1
+
+- name: Run Step2
+  shell: step2
